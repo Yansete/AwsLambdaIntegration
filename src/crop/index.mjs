@@ -1,67 +1,73 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import sharp from "sharp";
 
 const s3 = new S3Client({});
 
+const streamToBuffer = async (stream) => {
+  const chunks = [];
+
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+  }
+
+  return Buffer.concat(chunks);
+};
+
 export const handler = async (event) => {
   try {
-    const body = JSON.parse(event.body || "{}");
+    console.log("Evento recibido:", JSON.stringify(event));
 
-    const fileBase64 = body.fileBase64;
-    const fileName = body.fileName || "image.png";
-    const contentType = body.contentType || "image/png";
+    for (const record of event.Records || []) {
+      const body = JSON.parse(record.body);
+      const s3Record = body.Records[0].s3;
 
-    if (!fileBase64) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ message: "fileBase64 es requerido" }),
-      };
+      const bucket = s3Record.bucket.name;
+      const key = decodeURIComponent(s3Record.object.key.replace(/\+/g, " "));
+
+      console.log(`Procesando imagen: ${bucket}/${key}`);
+
+      const imageObject = await s3.send(
+        new GetObjectCommand({
+          Bucket: bucket,
+          Key: key,
+        })
+      );
+
+      const imageBuffer = await streamToBuffer(imageObject.Body);
+
+      const circleSvg = `
+        <svg width="40" height="40">
+          <circle cx="20" cy="20" r="20" fill="white"/>
+        </svg>
+      `;
+
+      const processedImage = await sharp(imageBuffer)
+        .resize(40, 40, { fit: "cover" })
+        .composite([{ input: Buffer.from(circleSvg), blend: "dest-in" }])
+        .png()
+        .toBuffer();
+
+      const originalName = key.split("/").pop().split(".")[0];
+      const outputKey = `${process.env.PROCESSED_PREFIX}${originalName}_circular.png`;
+
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: process.env.S3_BUCKET,
+          Key: outputKey,
+          Body: processedImage,
+          ContentType: "image/png",
+        })
+      );
+
+      console.log(`Imagen procesada: ${outputKey}`);
     }
-
-    const buffer = Buffer.from(fileBase64, "base64");
-
-    if (buffer.length > 10 * 1024 * 1024) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ message: "La imagen supera los 10 MB" }),
-      };
-    }
-
-    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-
-    if (!allowedTypes.includes(contentType)) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ message: "Tipo de archivo no permitido" }),
-      };
-    }
-
-    const extension = fileName.split(".").pop();
-    const key = `${process.env.UPLOAD_PREFIX}${crypto.randomUUID()}.${extension}`;
-
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: process.env.S3_BUCKET,
-        Key: key,
-        Body: buffer,
-        ContentType: contentType,
-      })
-    );
 
     return {
-      statusCode: 200,
-      body: JSON.stringify({
-        message: "Imagen subida correctamente",
-        bucket: process.env.S3_BUCKET,
-        key,
-      }),
+      batchItemFailures: [],
     };
   } catch (error) {
-    console.error(error);
+    console.error("Error procesando imagen:", error);
 
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: "Error interno", error: error.message }),
-    };
+    throw error;
   }
 };

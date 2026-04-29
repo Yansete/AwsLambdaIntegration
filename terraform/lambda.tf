@@ -36,6 +36,7 @@ resource "aws_lambda_function" "crop" {
   runtime       = "nodejs20.x"
   memory_size   = 512
   timeout       = 60
+  architectures = ["arm64"]
 
   filename         = data.archive_file.crop_zip.output_path
   source_code_hash = data.archive_file.crop_zip.output_base64sha256
