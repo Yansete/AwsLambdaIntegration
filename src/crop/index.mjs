@@ -1,5 +1,5 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import crypto from "crypto";
+import sharp from "sharp";
 
 const s3 = new S3Client({});
 
