@@ -1,0 +1,17 @@
+# Node
+node_modules/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Zip lambda
+*.zip
